@@ -1,0 +1,10 @@
+[package]
+name = "landmass"
+version = "0.1.0"
+authors = ["Alexander Griffith <griffitaj@gmail.com>"]
+
+[dependencies]
+noise = "*"
+rand = "*"
+image = "*"
+glium = "*"
