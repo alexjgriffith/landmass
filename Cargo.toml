@@ -8,3 +8,6 @@ noise = "*"
 rand = "*"
 image = "*"
 glium = "*"
+collada = {git="https://github.com/alexjgriffith/piston_collada.git", branch="triangle-support" }
+cgmath = "0.16.1"
+

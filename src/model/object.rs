@@ -26,10 +26,20 @@ pub struct Normal {
 }
 
 #[derive(Debug,Clone)]
-pub struct Object{
+pub struct Model{
     pub vertices : Vec<Vertex>,
     pub normals  : Option<Vec<Normal>>,
     pub index    : Option<Vec<u16>>,
     pub material : Option<&'static str>,    
     pub bones    : Option<bool> // add later
 }
+
+pub struct Object {
+    pub pos           : [f32;3],
+    pub orientation   : [f32;4],
+    pub scale         : f32,
+    pub draw          : bool,
+    pub model         : Option<Model>,    
+}
+
+

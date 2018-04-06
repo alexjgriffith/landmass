@@ -1,182 +1,28 @@
 #[macro_use]
 extern crate glium;
-extern crate noise;
 extern crate rand;
 extern crate image;
+extern crate noise;
+extern crate cgmath;
 
 use glium::{glutin,Surface};
-use noise::{Perlin,Seedable,NoiseFn};
-use image::ImageBuffer;
-use std::path::Path;
+use std::{thread, time};
 
-mod model;
+mod camera;
+mod landmass;
 
-#[derive(Debug,Clone,Copy)]
-struct MapParameters {
-    width: i32,
-    height: i32,
-    scale:f32,
-    levels: i32,
-    scale_ratio: f32,
-    freq_ratio: f32,
-}
-
-impl MapParameters {
-    fn new(width: i32, height: i32, scale: f32, levels: i32, scale_ratio: f32, freq_ratio: f32) -> MapParameters{
-        MapParameters{width,height,scale,levels,scale_ratio,freq_ratio}
-    }
-
-    fn xy(&self,perlin: &Perlin, x: &f64,y: &f64) -> f64{
-        let mut z:f64 = 0.0;
-        let xp = *x / (self.width as f64);
-        let yp = *y / (self.height as f64);
-        for i in 0..self.levels{
-            let f : f64 = self.freq_ratio.powi(i) as f64;  // lac^i
-            let a : f64 = self.scale_ratio.powi(i) as f64; // per^i
-            z+=a*perlin.get([xp*f,yp*f]) ;            
-        }
-        z
-    }
-}
-
-#[derive(Debug)]
-struct WorldMap{
-    parameters: MapParameters,
-    seed: u32,
-    vertecies: Vec<model::object::Vertex>
-}
-
-impl WorldMap{
-    fn new(params: MapParameters) -> WorldMap{
-        let seed = rand::random();
-        let perlin = Perlin::new();
-        let perlin = perlin.set_seed(seed);
-        let mut vertecies = Vec::with_capacity((params.width * params.height) as usize);
-        for i in 0..params.width{
-            for j in 0..params.height{
-                let x: f32 = (j as f32) * params.scale;
-                let y: f32 = (i as f32) * params.scale;
-                let z: f32 = params.xy(&perlin,&(x as f64),&(y as f64)) as f32;
-                vertecies.push(model::object::Vertex{position:(x,y,z)});
-            }        
-        }
-        WorldMap{
-            parameters: params,
-            seed: seed,
-            vertecies: vertecies
-        }
-    }
-    fn height_map (&self) -> Vec<f32> {
-        let mut vertecies = Vec::with_capacity((self.parameters.width *
-                                                self.parameters.height) as usize);
-        for i in 0..self.parameters.height{
-            for j in 0..self.parameters.width{
-                let model::object::Vertex{position: (_,_,z)}=
-                    self.vertecies[(i*self.parameters.width + j) as usize];
-                vertecies.push(z)
-            }
-        }
-        vertecies
-    }
-    
-    #[allow(dead_code)]
-    fn visualize(&self,filename: std::string::String){
-        let heights = normalize(self.height_map());
-        let height = self.parameters.height;
-        let width = self.parameters.width;
-        let img = ImageBuffer::from_fn(height.clone() as u32,width.clone() as u32,|x,y|{
-            image::Luma([heights[((width.clone() as u32)*y+x) as usize] as u8])
-        });
-        let name = filename;
-        let path = Path::new(&name);
-        img.save(path).unwrap();
-    }
-    
-    fn as_model_object(&self) -> model::object::Object{
-        let width = self.parameters.width;
-        let height = self.parameters.height;
-        // define indicies
-        let mut ind = Vec::with_capacity(((width - 1)*(height - 1)*3*2) as usize);
-        let mut norms = Vec::with_capacity((width * height ) as usize);
-        let zero_norm = model::object::Normal{normal:(0.0f32,0.0,0.0)};
-        for _i in 0..(width*height){
-            norms.push(zero_norm);
-        }
-        for i in 0..(height -1){
-            for j in 0..(width -1){
-                let offset = width*i+j;
-                let mut x = vec!((offset+1) as u16,
-                                 (offset+width+1) as u16,
-                                 offset as u16);
-                let mut y = vec!(offset as u16,
-                                 (offset+width) as u16,
-                                 (offset+width+1) as u16);
-                let mut normal = cross_product(&self.vertecies[x[0] as usize],
-                                               &self.vertecies[x[1] as usize],
-                                               &self.vertecies[x[2] as usize]);
-                for n in x.clone(){                    
-                    norms[n as usize]=normal;
-                }
-                for n in y.clone(){
-                    norms[n as usize]=normal;
-                }                                
-
-                ind.append(&mut x);
-                ind.append(&mut y);
-            }
-        }
-        model::object::Object{
-            vertices: self.vertecies.clone(),
-            normals: Some(norms),
-            index: Some(ind),
-            material: None,
-            bones: None,
-        }
-        
-    }
-}
-
-fn cross_product(a: &model::object::Vertex, b: &model::object::Vertex, c: &model::object::Vertex) ->  model::object::Normal{
-    let (ax,ay,az) = a.uniform();
-    let (bx,by,bz) = b.uniform();
-    let (cx,cy,cz) = c.uniform();
-    let (abx,aby,abz) = (ax - bx, ay - by, az - bz);
-    let (cbx,cby,cbz) = (cx - bx, cy - by, cz - bz);    
-    let norm = ((aby*cbz - abz*cby),
-                (abz*cbx - abx*cbz),
-                (abx*cby - aby*cbx));
-    model::object::Normal{normal:norm}
-}
-
-#[allow(dead_code)]
-fn normalize(vector : Vec<f32>)->Vec<u8>{
-    let max = vector.iter().cloned().fold(0./0., f32::max);
-    let min = vector.iter().cloned().fold(0./0., f32::min);
-    vector.iter().map(|v|{
-        ((v - min) / (max - min) * 256.0) as u8
-    }).collect::<Vec<u8>>()
-}
-
-fn _batch_gen(height: i32, width: i32){
-    let params = MapParameters::new(height.clone(),width.clone(),1.0,5,0.8,1.4);
-    for i in 0..5{
-        let wm = WorldMap::new(params.clone());
-        let file = format!("test_{}.png",i.to_string());
-        wm.visualize(file)
-    }
-
-}
-
+use camera::Camera;
 
 fn main() {
     let height = 256;
     let width = 256;
-    let params = MapParameters::new(height.clone(),width.clone(),1.0,10,0.4,2.0);
-    let wm = WorldMap::new(params.clone());
+    let params = landmass::MapParameters::new(height.clone(),width.clone(),2.0,8,0.8,1.5);
+    let wm = landmass::WorldMap::new(params.clone());
     let obj = wm.as_model_object();
 
     let mut events_loop = glutin::EventsLoop::new();
-    let window = glutin::WindowBuilder::new();
+    let window = glutin::WindowBuilder::new().with_title("Landmass");
+    // .set_cursor_state(glutin::CursorState::Normal);
     let context = glutin::ContextBuilder::new().with_depth_buffer(24);
 
     let display = glium::Display::new(window,context,&events_loop).unwrap();
@@ -189,32 +35,41 @@ fn main() {
         #version 150
         in vec3 position;
         in vec3 normal;
-        out vec3 v_normal;
+        flat out vec3 v_normal;
+        out vec3 v_position;
         uniform mat4 perspective;
-        uniform mat4 matrix;
+        uniform mat4 view;
+        uniform mat4 model;
         void main() {
-            v_normal = transpose(inverse(mat3(matrix))) * normal;
-            gl_Position =  perspective * matrix * vec4(position, 1.0);
+            mat4 modelview = view * model;
+            v_normal = transpose(inverse(mat3(modelview))) * normal;
+            gl_Position =   perspective * modelview * vec4(position, 1.0);
+            v_position = gl_Position.xyz / gl_Position.w;
         }
     "#;
 
     let fragment_shader_src = r#"
         #version 150
-        in vec3 v_normal;
+        flat in vec3 v_normal;
+        in vec3 v_position;
+
         out vec4 color;
-        
+        const vec3 ambient_color = vec3(0.1, 0.0, 0.1);
+        const vec3 diffuse_color = vec3(0.3, 0.05, 0.1);
+        const vec3 specular_color = vec3(1.0, 1.0, 1.0);        
         uniform vec3 u_light;
         void main() {
-             float brightness = dot(normalize(v_normal), normalize(u_light));
-             vec3 dark_color = vec3(0.0, 0.6, 0.0);
-             vec3 regular_color = vec3(0.0, 1.0, 0.0);
-             color = vec4(mix(dark_color, regular_color, brightness), 1.0);
+             float diffuse = max(dot(normalize(v_normal), normalize(u_light)),0.0);
+             vec3 camera_dir = normalize(-v_position);
+             vec3 half_direction = normalize(normalize(u_light)+camera_dir);
+             float specular = pow(max(dot(half_direction, normalize(v_normal)), 0.0), 16.0);
+             color = vec4(ambient_color+diffuse*diffuse_color + specular*specular_color, 1.0);
         }
     "#;
 
     let program = glium::Program::from_source(&display, vertex_shader_src, fragment_shader_src,
                                               None).unwrap();
-    let light = [-1.0, 0.4, 0.9f32];
+    let light = [-2.0f32, -1.0, 0.0f32];
     
     let mut closed = false;
     let params = glium::DrawParameters {
@@ -223,16 +78,25 @@ fn main() {
             write: true,
             .. Default::default()
         },
+        // backface_culling: glium::draw_parameters::BackfaceCullingMode::CullCounterClockwise,
         .. Default::default()
     };
-
+    let thirteen_millis = time::Duration::from_millis(1000/60);
+    // let mut position = [0.0, 0.0, 0.0]; //[2.0, -1.0, 1.0];
+    // let mut camerav = [1.0, 0.0, 1.0]; //&[-2.0, 1.0, 1.0]
+    let mut cam = Camera::new([00.0, 50.0, 0.0],[0.0, 0.0, 1.0]);
+    let mut keydown = Keyboard::new();
+    let mut t = 0.1;
     while !closed {
         let mut target = display.draw();
+        //cam = cam.rotate(t,t);
+        let view = cam.view_matrix();//camera::view_matrix(&position, &camerav, &[0.0,1.0,0.0] );
         let perspective = {
             let (width, height) = target.get_dimensions();
             let aspect_ratio = height as f32 / width as f32;
 
-            let fov: f32 = 3.141592 / 3.0;
+            // let fov: f32 = 3.141592 / 3.0;
+            let fov: f32 = 3.141592 / 2.0;
             let zfar = 2048.0;
             let znear = 0.01;
 
@@ -247,16 +111,17 @@ fn main() {
         };        
         target.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
 
-        let matrix = [
+        let model = [
             [1.0, 0.0, 0.0, 0.0],
             [0.0, 1.0, 0.0, 0.0],
             [0.0, 0.0, 1.0, 0.0],
-            [-128.0, -128.0, 128.0, 1.0f32]
+            [0.0, 0.0, 0.0, 1.0f32]
         ];
 
         target.draw((&positions, &normals), &indices, &program,
-                    &uniform! { matrix: matrix,
+                    &uniform! { model: model,
                                 u_light: light,
+                                view: view,
                                 perspective: perspective},
                     &params).unwrap();
         target.finish().unwrap();
@@ -265,10 +130,205 @@ fn main() {
             match event {
                 glutin::Event::WindowEvent { event, .. } => match event {
                     glutin::WindowEvent::Closed => closed = true,
+                    glutin::WindowEvent::CursorMoved{position,modifiers, ..} =>
+                        mouse_move(position,modifiers),
+                    glutin::WindowEvent::KeyboardInput{input, ..} =>{
+                        keydown.key_input(input)},
                     _ => ()
                 },
                 _ => (),
             }
         });
+        cam = simple_eval(&keydown, cam);
+        keydown.reset_triggers();
+        // println!("{:?}",cam);
+        thread::sleep(thirteen_millis);
     }
+}
+
+fn simple_eval(keys: &Keyboard, cam: Camera)->Camera{
+    let speed = 2.0;
+    let mv = 0.5;
+    let mut cam3 = cam.clone();
+    cam3 = match keys.escape.trigger_pressed{
+        true => {
+            cam3.flip()},
+        false => cam3            
+    };
+    cam3 = match keys.down.state{
+        true => cam3.rotate(speed,0.0),
+        false => cam3
+    };
+    cam3 = match keys.up.state{
+        true => cam3.rotate(-speed,0.0),
+        false => cam3
+    };
+    cam3 = match keys.right.state{
+        true => cam3.rotate(0.0,speed),
+        false => cam3
+    };
+    cam3 = match keys.left.state{
+        true => cam3.rotate(0.0,-speed),
+        false => cam3
+    };
+    cam3 = match keys.w.state{
+        true => cam3.forward(mv),
+        false => cam3
+    };
+    cam3 = match keys.s.state{
+        true => cam3.forward(-mv),
+        false => cam3
+    };
+    cam3 = match keys.a.state{
+        true => cam3.right(-mv),
+        false => cam3
+    };
+    cam3 = match keys.d.state{
+        true => cam3.right(mv),
+        false => cam3
+    };    
+
+    cam3
+
+}
+
+// Can look at keydown and and direction and determine how to update position
+// similarily it could look at mousepos and determine how to update direction
+// fn _move_camera ( _position: &mut [f32;3] , _direction: &mut [f32;3]){
+//     let velocity = 10.0;
+//     let (x,y) = keydown_to_v2(_keydown,_direction,velocity);
+//     //_position[0]+=
+    
+// }
+
+// Take this out and flesh out a keyboard class. The keyboard will be a state machine
+// that the controler builds off of. 
+
+
+// add functions to be called durring input stream
+#[allow(dead_code)]
+#[derive(Debug,Clone)]
+struct Key {
+    state: bool,
+    trigger_pressed: bool,
+    trigger_release: bool,
+//    modifier: glutin::ModifiersState
+}
+
+
+impl Key {
+    fn new () -> Key{
+        let state = false;
+        let triggered = false;
+        Key{state:false,trigger_pressed:false, trigger_release:false}
+    }
+
+    fn pressed(&mut self) {
+        self.state = true ;
+        self.trigger_pressed = true;
+    }
+    fn release(&mut self){
+        self.state = false ;
+        self.trigger_release = true;
+    }
+}
+
+#[derive(Debug)]
+struct Keyboard {
+    down: Key,
+    left: Key,
+    right: Key,
+    up: Key,
+    w: Key,
+    s: Key,
+    a: Key,
+    d: Key,    
+    escape: Key,
+}
+
+
+fn mouse_move(position :(f64,f64),_modifiers: glutin::ModifiersState) {
+    // println!("{:?}",position);
+}
+
+impl Keyboard {
+    fn new () -> Keyboard{
+        Keyboard{down: Key::new(),
+                 left: Key::new(),
+                 right: Key::new(),
+                 up: Key::new(),
+                 w: Key::new(),
+                 s: Key::new(),
+                 a: Key::new(),
+                 d: Key::new(),                 
+                 escape: Key::new()}
+    }
+
+    fn reset_triggers(&mut self){
+        self.escape.trigger_pressed=false;
+    }
+    // this can be generalized with a macro
+    fn key_input (&mut self,input: glutin::KeyboardInput) {    
+        use glutin::VirtualKeyCode::*;
+        use glutin::ElementState::*;
+        match (input.virtual_keycode.unwrap(),input.state) {            
+            (Escape,Pressed) => {
+                self.escape.pressed();},
+            (Escape,Released) => {
+                self.escape.release();},            
+            (Down,Pressed) => {
+                self.down.pressed();
+            },
+            (Down,Released) =>{
+                self.down.release();
+            },        
+            (Left,Pressed) => {
+                self.left.pressed();
+            },        
+            (Left,Released) => {
+                self.left.release();
+            },
+            (Right,Pressed) => {
+                self.right.pressed();
+            },
+            (Right,Released) => {
+                self.right.release();
+            },
+            (Up,Pressed) => {
+                self.up.pressed();
+            },
+            (Up,Released) => {
+                self.up.release();
+            },
+            (W,Pressed) => {
+                self.w.pressed();
+            },
+            (W,Released) => {
+                self.w.release();
+            },
+            (S,Pressed) => {
+                self.s.pressed();
+            },
+            (S,Released) => {
+                self.s.release();
+            },
+            
+            (A,Pressed) => {
+                self.a.pressed();
+            },
+            (A,Released) => {
+                self.a.release();
+            },
+            (D,Pressed) => {
+                self.d.pressed();
+            },
+            (D,Released) => {
+                self.d.release();
+            },
+
+
+            (_,_) => ()
+        }
+    }
+
 }
