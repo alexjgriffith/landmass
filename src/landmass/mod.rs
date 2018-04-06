@@ -87,7 +87,7 @@ impl WorldMap{
         });
         let name = filename;
         let path = Path::new(&name);
-        img.save(path).unwrap();
+        img.save(path).unwrap(); // DANGEROUS!! Handle Properly
     }
     
     pub fn as_model_object(&self) -> model::object::Model{
@@ -163,5 +163,4 @@ fn batch_gen(height: i32, width: i32){
         let file = format!("test_{}.png",i.to_string());
         wm.visualize(file)
     }
-
 }

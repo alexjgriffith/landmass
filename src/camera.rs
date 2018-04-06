@@ -1,4 +1,4 @@
-use cgmath::{Deg,Rad,Vector3, Quaternion, Matrix4,Matrix3};
+use cgmath::{Deg,Rad,Vector3, Quaternion};
 use cgmath::prelude::*;
 
 #[derive(Debug,Copy,Clone)]
@@ -14,8 +14,8 @@ impl Camera {
         let dir = Vector3::from(dir);
         let up = Vector3::new(0.0,1.0,0.0);
         Camera{pos,dir,up}
-    }
-
+    }    
+    
     pub fn view_matrix(&self) -> [[f32;4];4]{
         let f = self.dir.normalize();
         let s = self.up.cross(f);
@@ -33,6 +33,7 @@ impl Camera {
         ]
     }
 
+    #[allow(dead_code)]
     pub fn flip(mut self) -> Camera{
         let p = Quaternion{s:0.0,v:self.dir}.normalize();        
         let quat = Quaternion::from_axis_angle(Vector3::new(0f32,0f32,1f32),

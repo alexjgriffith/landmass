@@ -34,6 +34,7 @@ pub struct Model{
     pub bones    : Option<bool> // add later
 }
 
+#[allow(dead_code)]
 pub struct Object {
     pub pos           : [f32;3],
     pub orientation   : [f32;4],
